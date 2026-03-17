@@ -11,7 +11,7 @@ export default class GuitarTabsPlugin extends Plugin {
 
 		this.registerMarkdownCodeBlockProcessor(
 			CODEBLOCK_LANGUAGE,
-			createVexTabProcessor(CODEBLOCK_LANGUAGE, () => this.settings),
+			createVexTabProcessor(CODEBLOCK_LANGUAGE, () => this.settings, this.app),
 		);
 
 		this.addSettingTab(new GuitarTabsSettingTab(this.app, this));

@@ -1,6 +1,7 @@
-import { MarkdownPostProcessorContext } from 'obsidian';
+import { App, MarkdownPostProcessorContext } from 'obsidian';
 import { VexTab, Artist, Vex } from 'vextab';
 import { CSS_PREFIX, type GuitarTabsSettings } from './types';
+import { TabEditorModal } from './editor/modal';
 
 const Renderer = Vex.Flow.Renderer;
 
@@ -38,9 +39,10 @@ const WHITE_FILLS = new Set(['white', '#fff', '#ffffff', 'ffffff']);
 export function createVexTabProcessor(
 	language: string,
 	getSettings: () => GuitarTabsSettings,
+	app: App,
 ) {
-	return (source: string, el: HTMLElement, _ctx: MarkdownPostProcessorContext) => {
-		renderVexTab(source, el, getSettings());
+	return (source: string, el: HTMLElement, ctx: MarkdownPostProcessorContext) => {
+		renderVexTab(source, el, getSettings(), app, ctx);
 	};
 }
 
@@ -51,6 +53,8 @@ function renderVexTab(
 	source: string,
 	container: HTMLElement,
 	settings: GuitarTabsSettings,
+	app: App,
+	ctx: MarkdownPostProcessorContext,
 ): void {
 	const wrapper = container.createDiv({ cls: `${CSS_PREFIX}-container` });
 
@@ -71,9 +75,53 @@ function renderVexTab(
 		fitSvgToContent(renderDiv);
 		applyTextClass(renderDiv);
 		applyThemeColors(renderDiv);
+
+		addEditButton(wrapper, source, app, ctx);
 	} catch (error) {
 		renderError(wrapper, error);
 	}
+}
+
+/**
+ * Add a subtle edit button to the rendered code block.  When clicked,
+ * opens the tab editor modal pre-filled with the current source.
+ */
+function addEditButton(
+	wrapper: HTMLElement,
+	source: string,
+	app: App,
+	ctx: MarkdownPostProcessorContext,
+): void {
+	const btn = wrapper.createDiv({ cls: `${CSS_PREFIX}-edit-btn` });
+	btn.textContent = 'Edit';
+	btn.setAttribute('aria-label', 'Edit guitar tab');
+
+	btn.addEventListener('click', () => {
+		const modal = new TabEditorModal(
+			app,
+			(newSource: string) => {
+				// Find the section info to locate the code block in the file.
+				const sectionInfo = ctx.getSectionInfo(wrapper);
+				if (!sectionInfo) return;
+
+				const { lineStart, lineEnd } = sectionInfo;
+				const file = app.vault.getAbstractFileByPath(sectionInfo.text ? ctx.sourcePath : ctx.sourcePath);
+				if (!file) return;
+
+				app.vault.read(file as any).then((content: string) => {
+					const lines = content.split('\n');
+					// Replace only the content between the code fences.
+					const newBlock = '```vextab\n' + newSource + '\n```';
+					const before = lines.slice(0, lineStart).join('\n');
+					const after = lines.slice(lineEnd + 1).join('\n');
+					const newContent = before + (before ? '\n' : '') + newBlock + (after ? '\n' : '') + after;
+					app.vault.modify(file as any, newContent);
+				});
+			},
+			source,
+		);
+		modal.open();
+	});
 }
 
 /**
