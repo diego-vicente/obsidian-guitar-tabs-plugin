@@ -1,8 +1,25 @@
-/*
+/* Guitar Tabs plugin – blend with surrounding text */
+/* Colours are applied in JS by applyThemeColors(); CSS handles layout only. */
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+.guitar-tabs-container {
+	overflow-x: auto;
+}
 
-If your plugin does not need CSS, delete this file.
+.guitar-tabs-render {
+	display: inline-block;
+	min-width: 100%;
+}
 
-*/
+.guitar-tabs-readable-text {
+	font-family: var(--font-text) !important;
+}
+
+.guitar-tabs-error {
+	color: var(--text-error);
+}
+
+.guitar-tabs-error pre {
+	margin: 0;
+	white-space: pre-wrap;
+	word-break: break-word;
+}

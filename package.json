@@ -1,7 +1,7 @@
 {
-	"name": "obsidian-sample-plugin",
+	"name": "obsidian-guitar-tabs-plugin",
 	"version": "1.0.0",
-	"description": "This is a sample plugin for Obsidian (https://obsidian.md)",
+	"description": "Render guitar tablature and music notation from VexTab code blocks in Obsidian.",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {
@@ -10,7 +10,14 @@
 		"version": "node version-bump.mjs && git add manifest.json versions.json",
 		"lint": "eslint ."
 	},
-	"keywords": [],
+	"keywords": [
+		"obsidian",
+		"guitar",
+		"tabs",
+		"tablature",
+		"vextab",
+		"music-notation"
+	],
 	"license": "0-BSD",
 	"devDependencies": {
 		"@types/node": "^16.11.6",
@@ -24,6 +31,7 @@
 		"jiti": "2.6.1"
 	},
 	"dependencies": {
-		"obsidian": "latest"
+		"obsidian": "latest",
+		"vextab": "^4.0.5"
 	}
 }

@@ -2,9 +2,11 @@
 
 ## Project overview
 
+- **Guitar Tabs plugin**: renders guitar tablature and music notation from ` ```vextab ` code blocks using the [VexTab](https://github.com/0xfe/vextab) library (v4.0.5) with VexFlow v5.
 - Target: Obsidian Community Plugin (TypeScript → bundled JavaScript).
 - Entry point: `main.ts` compiled to `main.js` and loaded by Obsidian.
-- Required release artifacts: `main.js`, `manifest.json`, and optional `styles.css`.
+- Required release artifacts: `main.js`, `manifest.json`, and `styles.css`.
+- Plugin ID: `vextab` (matches the vault folder name under `.obsidian/plugins/`).
 
 ## Environment & tooling
 
@@ -233,6 +235,60 @@ this.registerEvent(this.app.workspace.on("file-open", f => { /* ... */ }));
 this.registerDomEvent(window, "resize", () => { /* ... */ });
 this.registerInterval(window.setInterval(() => { /* ... */ }, 1000));
 ```
+
+## Architecture
+
+### Source files
+
+| File | Responsibility |
+|---|---|
+| `src/main.ts` | Plugin lifecycle only: loads settings, registers the code block processor and settings tab. |
+| `src/renderer.ts` | VexTab parsing, VexFlow SVG rendering, theme colour replacement, readable-text tagging. |
+| `src/settings.ts` | Settings tab UI (render scale, stave width). |
+| `src/types.ts` | Shared types (`GuitarTabsSettings`), defaults (`DEFAULT_SETTINGS`), and constants (`CODEBLOCK_LANGUAGE`, `CSS_PREFIX`). |
+| `src/vextab.d.ts` | Ambient type declarations for the untyped `vextab` npm package. |
+| `styles.css` | Layout-only CSS (colours are applied in JS). |
+
+### Rendering pipeline (Obsidian)
+
+1. Obsidian encounters a ` ```vextab ` code block and calls the registered processor.
+2. `renderVexTab()` creates a VexTab `Artist` at a fixed `RENDER_WIDTH` (687 px), parses the source, and renders SVG via VexFlow's SVG backend.
+3. `fitSvgToContent()` (deferred to `requestAnimationFrame`) expands the `viewBox` to the actual bounding box, removes fixed `width`/`height` attributes, and sets `width: 100%; height: auto` so CSS scales it to the container.
+4. `applyTextClass()` walks all `<text>` elements and tags those containing printable ASCII (fret numbers, annotations) with `.guitar-tabs-readable-text`. Music-notation glyphs (Unicode PUA codepoints from Bravura) are left untouched.
+5. `applyThemeColors()` replaces all hardcoded VexFlow colours (black strokes, white fills, `#444` ledger lines, etc.) with the active Obsidian theme's `--text-normal` and `--background-primary` values imperatively on every SVG element.
+
+### Obsidian Publish companion
+
+The plugin's rendering is also available on Obsidian Publish sites via a companion script embedded in the vault's `publish.js`. The companion:
+
+- Registers a code block processor for `vextab` via `publish.registerMarkdownCodeBlockProcessor()`.
+- Loads VexTab v4.0.5 from jsDelivr CDN (`https://cdn.jsdelivr.net/npm/vextab@4.0.5/dist/main.prod.js`) — the same build as the npm bundle (byte-identical).
+- **Waits for the Bravura and Academico fonts** to finish loading (`document.fonts.load()`) before rendering. This is critical: VexFlow measures glyph widths to calculate note spacing, and measuring with fallback fonts produces different (incorrect) layout.
+- Runs the same `fitSvgToContent`, `applyThemeColors`, and `applyTextClass` pipeline.
+- Matching CSS rules live in `publish.css`.
+
+The Publish companion section in `publish.js` sits between a header comment and the YouTube Highlighter IIFE.
+
+### Theme integration
+
+Colours are applied **entirely in JS** (`applyThemeColors`), not CSS. This is deliberate: Obsidian themes apply their own styles that can override CSS rules on SVG presentation attributes, even with `!important`. The JS approach directly rewrites every `fill` and `stroke` attribute on every SVG element after rendering:
+
+- Any `stroke` that isn't `"none"` → `--text-normal`
+- Any `fill` in `DARK_FILLS` (`black`, `#000`, `#000000`) → `--text-normal`
+- Any `fill` in `WHITE_FILLS` (`white`, `#fff`, `#ffffff`, `ffffff`) → `--background-primary`
+- Any other `rect` fill (except `opacity="0"` hit-targets) → `--background-primary`
+
+CSS only handles layout (container overflow, inline-block, width scaling) and the `.guitar-tabs-readable-text` font override.
+
+### Key design decisions
+
+| Decision | Rationale |
+|---|---|
+| Fixed `RENDER_WIDTH = 687` | Both Obsidian and Publish render at the same width so output is identical. CSS `width: 100%` scales the SVG to fit any container. Marked as TODO for a future user setting. |
+| Font wait on Publish | VexFlow loads Bravura/Academico via the async FontFace API. Without waiting, glyph measurements use system font fallbacks, producing wrong note spacing and overflow. |
+| JS colour replacement | Obsidian themes interfere with CSS-only overrides on SVG attributes. Direct attribute rewriting is the only reliable approach. |
+| `fitSvgToContent` as safety net | Expands the SVG viewBox if any content exceeds the nominal Artist width, preventing clipping. With matched fonts this rarely activates. |
+| Readable-text class via content inspection | VexFlow uses the same `font-family` (Bravura) for both music glyphs and fret numbers. The only differentiator is `textContent`: printable ASCII for numbers/text vs Unicode PUA for glyphs. |
 
 ## Troubleshooting
 
