@@ -71,6 +71,9 @@ export const TIME_SIGNATURES = [
 
 export const DEFAULT_TIME_SIGNATURE = '4/4';
 
+/** Default playback tempo in beats per minute. */
+export const DEFAULT_BPM = 120;
+
 /**
  * Options carried by each stave (parsed from `tabstave` directives).
  */

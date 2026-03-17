@@ -1,13 +1,21 @@
 import {
 	type GridEntry, type TabColumn, type DurationId, type Stave,
-	isBarline,
+	isBarline, DEFAULT_BPM,
 } from './types';
 
 /**
  * Serialize an array of staves into a complete VexTab source string.
+ * If tempo differs from the default, an `options tempo=N` line is prepended.
  */
-export function serializeStaves(staves: Stave[]): string {
-	return staves.map(serializeStave).join('\n\n');
+export function serializeStaves(staves: Stave[], tempo = DEFAULT_BPM): string {
+	const parts: string[] = [];
+	if (tempo !== DEFAULT_BPM) {
+		parts.push(`options tempo=${tempo}`);
+	}
+	for (const stave of staves) {
+		parts.push(serializeStave(stave));
+	}
+	return parts.join('\n\n');
 }
 
 /**

@@ -3,6 +3,7 @@ import { VexTab, Artist, Vex } from 'vextab';
 import { CSS_PREFIX, type GuitarTabsSettings } from './types';
 import { TabEditorModal } from './editor/modal';
 
+
 const Renderer = Vex.Flow.Renderer;
 
 /** Origin coordinates for the Artist canvas. */

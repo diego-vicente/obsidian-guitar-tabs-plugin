@@ -1,8 +1,14 @@
 import {
 	type GridEntry, type TabColumn, type DurationId, type Stave, type StaveOptions,
-	DEFAULT_DURATION, DEFAULT_STAVE_OPTIONS, STRING_COUNT,
+	DEFAULT_DURATION, DEFAULT_STAVE_OPTIONS, DEFAULT_BPM, STRING_COUNT,
 	emptyColumn, emptyStave,
 } from './types';
+
+/** Result of parsing a VexTab source string. */
+export interface ParseResult {
+	staves: Stave[];
+	tempo: number;
+}
 
 /** Pattern that matches a stave option like `key=value`. */
 const STAVE_OPTION_RE = /^([a-z]+)=(\S+)$/;
@@ -13,11 +19,12 @@ const STAVE_OPTION_RE = /^([a-z]+)=(\S+)$/;
  * Each `tabstave` (or `stave`) directive starts a new stave.  Notes that
  * appear before any directive are placed in an implicit first stave.
  */
-export function parseVexTabSource(source: string): Stave[] {
+export function parseVexTabSource(source: string): ParseResult {
 	const staves: Stave[] = [];
 	let current: Stave | null = null;
 	let currentDuration: DurationId = DEFAULT_DURATION;
 	let currentDotted = false;
+	let tempo = DEFAULT_BPM;
 
 	const lines = source.split('\n');
 	for (const line of lines) {
@@ -34,9 +41,17 @@ export function parseVexTabSource(source: string): Stave[] {
 			continue;
 		}
 
+		// Parse options directive (may contain tempo).
+		if (trimmed.startsWith('options')) {
+			const tempoMatch = trimmed.match(/tempo=(\d+)/);
+			if (tempoMatch) {
+				tempo = parseInt(tempoMatch[1]!, 10);
+			}
+			continue;
+		}
+
 		// Skip directives the editor doesn't handle.
 		if (
-			trimmed.startsWith('options') ||
 			trimmed.startsWith('text') ||
 			trimmed.startsWith('voice')
 		) {
@@ -119,7 +134,7 @@ export function parseVexTabSource(source: string): Stave[] {
 		staves.push(emptyStave(DEFAULT_DURATION));
 	}
 
-	return staves;
+	return { staves, tempo };
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────

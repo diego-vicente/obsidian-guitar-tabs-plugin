@@ -2,12 +2,13 @@ import { App, Modal } from 'obsidian';
 import { VexTab, Artist, Vex } from 'vextab';
 import {
 	type DurationId, type Stave,
-	DURATIONS, DEFAULT_DURATION,
+	DURATIONS, DEFAULT_DURATION, DEFAULT_BPM,
 	emptyStave, TIME_SIGNATURES, DEFAULT_TIME_SIGNATURE,
 } from './types';
 import { createGrid } from './grid';
 import { serializeStaves } from './serializer';
 import { parseVexTabSource } from './parser';
+import { playStaves } from '../playback';
 
 const Renderer = Vex.Flow.Renderer;
 
@@ -15,6 +16,11 @@ const Renderer = Vex.Flow.Renderer;
 const RENDER_WIDTH = 687;
 const ARTIST_X = 10;
 const ARTIST_Y = 10;
+
+/** BPM limits for the tempo slider. */
+const MIN_BPM = 40;
+const MAX_BPM = 240;
+const BPM_STEP = 5;
 
 /**
  * Modal that presents a clickable tablature grid with multi-stave
@@ -28,12 +34,17 @@ export class TabEditorModal extends Modal {
 
 	private staves: Stave[] = [];
 	private activeStaveIdx = 0;
+	private tempo = DEFAULT_BPM;
 
 	private staveNavEl: HTMLElement;
 	private gridContainerEl: HTMLElement;
 	private previewEl: HTMLElement;
 	private codeEl: HTMLElement;
 	private grid: ReturnType<typeof createGrid>;
+	private stopPlayback: (() => void) | null = null;
+	private activePlayBtn: HTMLButtonElement | null = null;
+	private activePlayLabel = '';
+	private playStaveBtn: HTMLButtonElement;
 
 	constructor(
 		app: App,
@@ -52,7 +63,9 @@ export class TabEditorModal extends Modal {
 
 		// Parse initial source into staves.
 		if (this.initialSource.trim()) {
-			this.staves = parseVexTabSource(this.initialSource);
+			const result = parseVexTabSource(this.initialSource);
+			this.staves = result.staves;
+			this.tempo = result.tempo;
 		} else {
 			this.staves = [emptyStave(this.activeDuration)];
 		}
@@ -80,6 +93,25 @@ export class TabEditorModal extends Modal {
 		const barBtn = toolbar.createEl('button', { text: '| Barline', cls: 'tab-editor-bar-btn' });
 		barBtn.addEventListener('click', () => this.grid.addBarline());
 
+		// ── Tempo control ────────────────────────────────────────
+		const tempoGroup = toolbar.createDiv({ cls: 'tab-editor-tempo-group' });
+		tempoGroup.createEl('span', { text: 'Tempo:', cls: 'tab-editor-tempo-label' });
+		const tempoValue = tempoGroup.createEl('span', {
+			text: `${this.tempo}`,
+			cls: 'tab-editor-tempo-value',
+		});
+		const tempoSlider = tempoGroup.createEl('input', { cls: 'tab-editor-tempo-slider' });
+		tempoSlider.type = 'range';
+		tempoSlider.min = String(MIN_BPM);
+		tempoSlider.max = String(MAX_BPM);
+		tempoSlider.step = String(BPM_STEP);
+		tempoSlider.value = String(this.tempo);
+		tempoSlider.addEventListener('input', () => {
+			this.tempo = parseInt(tempoSlider.value, 10);
+			tempoValue.textContent = String(this.tempo);
+			this.updatePreview();
+		});
+
 		// ── Stave navigation ─────────────────────────────────────
 		this.staveNavEl = contentEl.createDiv({ cls: 'tab-editor-stave-nav' });
 		this.renderStaveNav();
@@ -98,10 +130,30 @@ export class TabEditorModal extends Modal {
 
 		// ── Action buttons ───────────────────────────────────────
 		const actions = contentEl.createDiv({ cls: 'tab-editor-actions' });
+
+		// Playback buttons with speed variants.
+		const playGroup = actions.createDiv({ cls: 'tab-editor-play-group' });
+
+		const SPEED_VARIANTS = [
+			{ label: '\u25B6 \u00D70.5', speed: 0.5 },
+			{ label: '\u25B6 \u00D70.75', speed: 0.75 },
+			{ label: '\u25B6 Play', speed: 1.0 },
+		];
+
+		for (const variant of SPEED_VARIANTS) {
+			const btn = playGroup.createEl('button', { text: variant.label });
+			btn.addEventListener('click', () => {
+				this.togglePlayback(btn, variant.label, undefined, variant.speed);
+			});
+		}
+
+		// Spacer pushes insert/cancel to the right.
+		const spacer = actions.createDiv({ cls: 'tab-editor-actions-spacer' });
+
 		const insertBtn = actions.createEl('button', { text: 'Insert', cls: 'mod-cta' });
 		insertBtn.addEventListener('click', () => {
 			this.syncGridToStave();
-			this.onInsert(serializeStaves(this.staves));
+			this.onInsert(serializeStaves(this.staves, this.tempo));
 			this.close();
 		});
 		const cancelBtn = actions.createEl('button', { text: 'Cancel' });
@@ -111,7 +163,47 @@ export class TabEditorModal extends Modal {
 	}
 
 	onClose() {
+		if (this.stopPlayback) {
+			this.stopPlayback();
+			this.stopPlayback = null;
+		}
 		this.contentEl.empty();
+	}
+
+	// ── Playback ────────────────────────────────────────────────
+
+	private togglePlayback(
+		btn: HTMLButtonElement,
+		originalLabel: string,
+		staveIndices?: number[],
+		speed = 1.0,
+	) {
+		// If already playing, stop.
+		if (this.stopPlayback) {
+			this.stopPlayback();
+			this.stopPlayback = null;
+			if (this.activePlayBtn) {
+				this.activePlayBtn.textContent = this.activePlayLabel;
+			}
+			this.activePlayBtn = null;
+			return;
+		}
+
+		this.syncGridToStave();
+
+		// Stop any other playback and update the button.
+		this.activePlayBtn = btn;
+		this.activePlayLabel = originalLabel;
+		btn.textContent = '\u25A0 Stop';
+
+		const effectiveBpm = Math.round(this.tempo * speed);
+		const stop = playStaves(this.staves, effectiveBpm, staveIndices);
+		this.stopPlayback = () => {
+			stop();
+			this.stopPlayback = null;
+			btn.textContent = originalLabel;
+			this.activePlayBtn = null;
+		};
 	}
 
 	// ── Stave navigation ────────────────────────────────────────
@@ -146,11 +238,17 @@ export class TabEditorModal extends Modal {
 			this.updatePreview();
 		});
 
+		// Play stave button.
+		const PLAY_STAVE_LABEL = '\u25B6 Play stave';
+		this.playStaveBtn = this.staveNavEl.createEl('button', { text: PLAY_STAVE_LABEL, cls: 'tab-editor-nav-btn' });
+		this.playStaveBtn.addEventListener('click', () => {
+			this.togglePlayback(this.playStaveBtn, PLAY_STAVE_LABEL, [this.activeStaveIdx]);
+		});
+
 		// Stave management buttons.
-		const addBtn = this.staveNavEl.createEl('button', { text: '+ Stave', cls: 'tab-editor-nav-add' });
+		const addBtn = this.staveNavEl.createEl('button', { text: 'New stave', cls: 'tab-editor-nav-add' });
 		addBtn.addEventListener('click', () => {
 			this.syncGridToStave();
-			// Inherit time signature from the current stave.
 			const prevTime = this.staves[this.activeStaveIdx]?.options.time ?? DEFAULT_TIME_SIGNATURE;
 			const newStave = emptyStave(this.activeDuration);
 			newStave.options.time = prevTime;
@@ -158,7 +256,7 @@ export class TabEditorModal extends Modal {
 			this.switchStave(this.staves.length - 1);
 		});
 
-		const delBtn = this.staveNavEl.createEl('button', { text: '\u2212 Stave', cls: 'tab-editor-nav-del' });
+		const delBtn = this.staveNavEl.createEl('button', { text: 'Delete stave', cls: 'tab-editor-nav-del' });
 		delBtn.disabled = this.staves.length <= 1;
 		delBtn.addEventListener('click', () => {
 			if (this.staves.length <= 1) return;
@@ -180,7 +278,6 @@ export class TabEditorModal extends Modal {
 		this.updatePreview();
 	}
 
-	/** Copy the current grid entries back into the active stave. */
 	private syncGridToStave() {
 		const stave = this.staves[this.activeStaveIdx];
 		if (stave) {
@@ -205,7 +302,7 @@ export class TabEditorModal extends Modal {
 
 	private updatePreview() {
 		this.syncGridToStave();
-		const source = serializeStaves(this.staves);
+		const source = serializeStaves(this.staves, this.tempo);
 		this.codeEl.textContent = '```vextab\n' + source + '\n```';
 
 		this.previewEl.empty();
